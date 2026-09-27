@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KubeFlow - Kubernetes Live Cluster Manager</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tone.js for micro-interaction sounds -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            k8s: {
+              blue: '#326CE5',
+              dark: '#070C18',
+              panel: '#0C1324',
+              card: '#131D35',
+              border: '#1E293B',
+              hover: '#1E2C4F',
+              cyan: '#38BDF8',
+              emerald: '#10B981',
+              amber: '#F59E0B',
+              rose: '#F43F5E'
+            }
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+    body {
+      background-color: #060A14;
+      color: #E2E8F0;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #090E1C;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 4px;
+      border: 1px solid #334155;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #326CE5;
+    }
+
+    .glow-cyan {
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+    }
+    .glow-rose {
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.3);
+    }
+
+    .grid-bg {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(50, 108, 229, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(50, 108, 229, 0.05) 1px, transparent 1px);
+    }
+
+    #inspectorDrawer {
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    .cursor-blink {
+      display: inline-block;
+      width: 8px;
+      height: 1.1em;
+      background-color: #38BDF8;
+      vertical-align: middle;
+      animation: blink 0.9s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+  </style>
+</head>
+<body class="min-h-screen grid-bg flex flex-col antialiased selection:bg-k8s-blue selection:text-white">
+
+  <header class="bg-[#0A1021]/95 border-b border-slate-800 text-slate-200 sticky top-0 z-40 backdrop-blur-md">
+    <div class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Cluster Identifier -->
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-cyan-400 shadow-sm">
+          <i data-lucide="shield-check" class="w-5 h-5 text-cyan-400"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm tracking-wide text-white font-mono">KUBE<span class="text-cyan-400">FLOW</span></span>
+            <div id="connectionStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+              <span id="connectionStatusText">Mock / Demo Mode</span>
+            </div>
+          </div>
+          <div class="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+            <span id="displayBackendUrl">http://localhost:5000</span>
+            <span>•</span>
+            <span id="clusterKubeVersion">v1.30.2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Telemetry Counters -->
+      <div class="hidden xl:flex items-center gap-6 text-xs font-mono">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Nodes:</span>
+          <span id="statTotalNodes" class="text-cyan-400 font-bold">3</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Running Pods:</span>
+          <span id="statRunningPods" class="text-emerald-400 font-bold">7</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Pending/Crashing:</span>
+          <span id="statFailedPods" class="text-rose-400 font-bold">0</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">Deployments:</span>
+          <span id="statDeployments" class="text-blue-400 font-bold">3</span>
+        </div>
+      </div>
+
+      <!-- Settings & Mode Switcher Controls -->
+      <div class="flex items-center gap-3 text-xs font-mono">
+        
+        <!-- Namespace Dropdown -->
+        <div class="flex items-center gap-1.5 bg-slate-900/90 px-2.5 py-1.5 rounded-lg border border-slate-700/80">
+          <i data-lucide="folder-git-2" class="w-3.5 h-3.5 text-cyan-400"></i>
+          <span class="text-slate-400 text-[11px]">NS:</span>
+          <select id="namespaceSelect" class="bg-transparent text-white font-semibold focus:outline-none cursor-pointer">
+            <option value="all" class="bg-slate-900">All</option>
+            <option value="default" class="bg-slate-900" selected>default</option>
+            <option value="kube-system" class="bg-slate-900">kube-system</option>
+            <option value="monitoring" class="bg-slate-900">monitoring</option>
+          </select>
+        </div>
+
+        <!-- Refresh Trigger Button -->
+        <button onclick="fetchClusterState()" title="Refresh Cluster State" class="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-cyan-400 rounded-lg border border-slate-700 transition">
+          <i data-lucide="refresh-cw" id="refreshIcon" class="w-3.5 h-3.5"></i>
+        </button>
+
+        <!-- Connection Settings Dialog Button -->
+        <button onclick="toggleConfigModal(true)" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded-lg transition">
+          <i data-lucide="settings-2" class="w-3.5 h-3.5 text-cyan-400"></i>
+          <span class="hidden sm:inline">Backend API</span>
+        </button>
+
+        <!-- Deploy Application Button -->
+        <button onclick="toggleDeployModal(true)" class="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white rounded-lg font-semibold shadow-md glow-cyan transition active:scale-95">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span>Deploy Workload</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div id="backendNoticeBanner" class="bg-gradient-to-r from-blue-950/80 via-indigo-950/80 to-slate-950 border-b border-blue-900/60 px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-3 text-slate-300">
+    <div class="flex items-center gap-2">
+      <span class="p-1 rounded bg-blue-500/20 text-cyan-400"><i data-lucide="info" class="w-4 h-4"></i></span>
+      <span id="bannerMessage">Operating in <strong>Interactive Demo Mode</strong>. Start your Node.js backend bridge (<code class="text-cyan-300">node server.js</code>) on <code class="text-cyan-300">http://localhost:5000</code> to manage your real cluster.</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button onclick="testBackendConnection()" class="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 rounded text-cyan-300 font-mono text-[11px] transition">
+        Retry Connect
+      </button>
+      <button onclick="document.getElementById('backendNoticeBanner').style.display='none'" class="text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 flex overflow-hidden">
+    
+    <!-- Left Navigation Sidebar -->
+    <aside class="w-60 bg-[#090F1E] border-r border-slate-800/80 p-3 hidden lg:flex flex-col justify-between">
+      <div class="space-y-6">
+        <div>
+          <div class="text-[10px] font-mono uppercase text-slate-500 tracking-wider px-3 mb-2 font-bold">Cluster Resources</div>
+          <nav class="space-y-1 text-xs font-medium">
+            <button class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-blue-600/15 text-cyan-300 border border-blue-500/30">
+              <span class="flex items-center gap-2.5"><i data-lucide="layout-grid" class="w-4 h-4 text-cyan-400"></i> Topology View</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-900/60 text-cyan-400" id="sidebarNodeCount">3</span>
+            </button>
+            <button onclick="toggleTerminal(true)" class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="terminal" class="w-4 h-4 text-emerald-400"></i> Kubectl CLI</span>
+              <span class="text-[10px] font-mono text-slate-500">Ctrl+`</span>
+            </button>
+            <button onclick="scrollToDeployments()" class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+              <span class="flex items-center gap-2.5"><i data-lucide="layers" class="w-4 h-4 text-purple-400"></i> Deployments</span>
+              <span class="text-[10px] font-mono text-slate-500" id="sidebarDeployCount">3</span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Quick Demo Fault Injector (For Testing Practice) -->
+        <div>
+          <div class="text-[10px] font-mono uppercase text-slate-500 tracking-wider px-3 mb-2 font-bold">Diagnostics & Labs</div>
+          <div class="space-y-1.5 px-1 font-mono text-[11px]">
+            <button onclick="injectFailureScenario()" class="w-full text-left px-2.5 py-1.5 rounded bg-slate-900/80 border border-slate-800 hover:border-rose-500/40 text-rose-300 transition flex items-center justify-between">
+              <span>Simulate OOM Crash</span>
+              <i data-lucide="flame" class="w-3.5 h-3.5 text-rose-400"></i>
+            </button>
+            <button onclick="healAllPods()" class="w-full text-left px-2.5 py-1.5 rounded bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 text-emerald-300 transition flex items-center justify-between">
+              <span>Auto Reconcile Pods</span>
+              <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Context Info Footer -->
+      <div class="p-3 bg-slate-900/70 rounded-xl border border-slate-800/80 text-[11px] font-mono text-slate-400">
+        <div class="text-white font-semibold mb-1 flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i> API Endpoint
+        </div>
+        <div class="truncate text-cyan-400" id="sidebarEndpointLabel">http://localhost:5000</div>
+        <div class="text-[10px] text-slate-500 mt-1">Context: <span class="text-slate-300">minikube / kind</span></div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+
+      <section id="deploymentsSection" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <i data-lucide="layers" class="w-4 h-4 text-cyan-400"></i> Active Workload Deployments
+          </h2>
+          <span class="text-xs text-slate-500 font-mono">Use controls to scale pod replicas in real-time</span>
+        </div>
+
+        <div id="deploymentsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <!-- Dynamically generated deployment cards will appear here -->
+        </div>
+      </section>
+
+      <section class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <i data-lucide="server" class="w-4 h-4 text-emerald-400"></i> Physical / Virtual Nodes Matrix
+          </h2>
+          <span class="text-xs text-slate-500 font-mono">Click on any container pod to open logs & manifest</span>
+        </div>
+
+        <div id="nodesGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          <!-- Dynamic Node Cards generated via JavaScript -->
+        </div>
+      </section>
+
+      <section id="terminalSection" class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+        <div class="bg-slate-900/90 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-2.5 h-2.5 rounded-full bg-rose-500/80"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
+            <span class="ml-2 font-mono text-xs text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyan-400"></i>
+              admin@kube-cluster:~ (interactive kubectl session)
+            </span>
+          </div>
+          <div class="flex items-center gap-2 font-mono text-xs">
+            <button onclick="clearTerminalScreen()" class="text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 transition">clear</button>
+            <button onclick="toggleTerminal(false)" class="text-slate-400 hover:text-white">
+              <i data-lucide="minus" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="terminalScreen" class="p-4 font-mono text-xs h-48 overflow-y-auto space-y-1 bg-slate-950/95 text-slate-200">
+          <div class="text-slate-500 font-mono">
+            ========================================================================<br>
+            <span class="text-cyan-400 font-bold">KUBEFLOW VISUAL CLUSTER CONTROLLER</span> [v1.30.2]<br>
+            Supported live commands: <span class="text-cyan-300">get nodes</span>, <span class="text-cyan-300">get pods</span>, <span class="text-cyan-300">scale deployment &lt;name&gt; --replicas=&lt;n&gt;</span>, <span class="text-yellow-400">help</span><br>
+            ========================================================================
+          </div>
+        </div>
+
+        <form id="terminalForm" class="flex items-center bg-slate-900/90 px-3 py-2 border-t border-slate-800">
+          <span class="text-cyan-400 font-mono text-xs font-bold mr-2">kubectl&gt;</span>
+          <input 
+            type="text" 
+            id="terminalInput" 
+            class="flex-1 bg-transparent text-white font-mono text-xs focus:outline-none placeholder-slate-600" 
+            placeholder="Type 'get pods', 'get nodes', 'scale deployment web-app --replicas=4'..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button type="submit" class="text-xs font-mono text-cyan-400 bg-cyan-950/70 border border-cyan-800/80 px-3 py-1 rounded hover:bg-cyan-900/60 transition">
+            Send
+          </button>
+        </form>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="inspectorDrawer" class="fixed top-0 right-0 h-full w-full sm:w-[500px] bg-[#0A1021] border-l border-slate-800 shadow-2xl z-50 transform translate-x-full flex flex-col">
+    <!-- Header -->
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-cyan-400">
+          <i data-lucide="box" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h3 id="inspectPodName" class="font-mono text-xs font-bold text-white truncate max-w-[260px]">pod-sample</h3>
+          <div id="inspectPodStatus" class="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 mt-0.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Running
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 font-mono">
+        <button onclick="deleteInspectedPod()" class="px-2.5 py-1 bg-rose-950/60 hover:bg-rose-900/60 border border-rose-700/60 text-rose-300 rounded text-xs flex items-center gap-1 transition">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Delete</span>
+        </button>
+        <button onclick="closeInspector()" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Inspector Tabs -->
+    <div class="flex border-b border-slate-800 bg-slate-900/40 text-xs font-mono">
+      <button onclick="switchInspectorTab('logs')" id="tabBtnLogs" class="flex-1 py-2.5 text-center border-b-2 border-cyan-400 text-cyan-400 font-bold transition">Live Logs</button>
+      <button onclick="switchInspectorTab('yaml')" id="tabBtnYaml" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition">YAML Manifest</button>
+      <button onclick="switchInspectorTab('details')" id="tabBtnDetails" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition">Pod Spec</button>
+    </div>
+
+    <!-- Tab Contents -->
+    <div class="flex-1 overflow-y-auto p-4 font-mono text-xs">
+      <!-- Tab 1: Live Container Logs -->
+      <div id="tabContentLogs" class="h-full flex flex-col space-y-2">
+        <div class="flex items-center justify-between text-[11px] text-slate-400 pb-1 border-b border-slate-800">
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Streaming stdout/stderr</span>
+          <div class="flex items-center gap-2">
+            <button onclick="refreshPodLogs()" class="text-cyan-400 hover:underline">Refresh</button>
+            <button onclick="clearPodLogs()" class="text-slate-400 hover:text-white">Clear</button>
+          </div>
+        </div>
+        <div id="podLogContainer" class="flex-1 bg-slate-950 p-3 rounded-lg border border-slate-900 overflow-y-auto text-[11px] leading-relaxed text-slate-300 space-y-1">
+          <!-- Logs will be populated here -->
+        </div>
+      </div>
+
+      <!-- Tab 2: YAML Manifest -->
+      <div id="tabContentYaml" class="hidden h-full flex flex-col space-y-2">
+        <div class="flex items-center justify-between pb-1 border-b border-slate-800 text-[11px] text-slate-400">
+          <span>Kubernetes JSON/YAML Manifest</span>
+          <button onclick="copyYamlManifest()" class="text-cyan-400 hover:underline flex items-center gap-1">
+            <i data-lucide="copy" class="w-3 h-3"></i> Copy
+          </button>
+        </div>
+        <pre id="yamlManifestDisplay" class="flex-1 bg-slate-950 p-3 rounded-lg border border-slate-900 overflow-auto text-[11px] text-emerald-300 leading-relaxed font-mono">
+        </pre>
+      </div>
+
+      <!-- Tab 3: Detailed Spec -->
+      <div id="tabContentDetails" class="hidden space-y-3 text-slate-300 text-xs">
+        <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-800 space-y-2">
+          <div class="flex justify-between"><span class="text-slate-500">Namespace:</span><span id="detailNamespace" class="text-white">-</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Node Placement:</span><span id="detailNode" class="text-cyan-400">-</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Pod IP Address:</span><span id="detailPodIp" class="text-emerald-400">-</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Container Restarts:</span><span id="detailRestarts" class="text-amber-400">0</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">QoS Class:</span><span class="text-slate-300">Burstable</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="deployModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#0D1426] border border-cyan-500/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative glow-cyan">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-cyan-400">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Deploy Workload to Cluster</h3>
+            <p class="text-xs text-slate-400">Create a Kubernetes Deployment specification.</p>
+          </div>
+        </div>
+        <button onclick="toggleDeployModal(false)" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="deployWorkloadForm" class="space-y-4 text-xs font-mono">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Workload / Deployment Name</label>
+          <input type="text" id="inputDeployName" value="frontend-nginx" required class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Container Image</label>
+            <input type="text" id="inputDeployImage" value="nginx:1.25-alpine" required class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Replicas</label>
+            <input type="number" id="inputDeployReplicas" min="1" max="8" value="2" required class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Port</label>
+            <input type="number" id="inputDeployPort" value="80" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Target Namespace</label>
+            <select id="inputDeployNamespace" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+              <option value="default" selected>default</option>
+              <option value="kube-system">kube-system</option>
+              <option value="monitoring">monitoring</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+          <button type="button" onclick="toggleDeployModal(false)" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-sans text-xs">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-semibold text-xs shadow-md glow-cyan flex items-center gap-1.5 transition">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Deploy</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="configModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#0D1426] border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <div class="flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-cyan-400"></i>
+          <h3 class="text-sm font-bold text-white">Cluster API Bridge Config</h3>
+        </div>
+        <button onclick="toggleConfigModal(false)" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4 text-xs font-mono">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Backend Bridge URL</label>
+          <input type="text" id="configBackendUrl" value="http://localhost:5000" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-400 focus:outline-none">
+          <p class="text-[11px] text-slate-500 mt-1 font-sans">Points to your local Express bridge server communicating with <code class="text-cyan-300">~/.kube/config</code>.</p>
+        </div>
+
+        <div class="flex items-center justify-between p-3 rounded-lg bg-slate-900 border border-slate-800">
+          <div>
+            <div class="text-white font-semibold font-sans">Force Demo Mode</div>
+            <div class="text-[11px] text-slate-400 font-sans">Preview UI simulation without live backend</div>
+          </div>
+          <input type="checkbox" id="toggleDemoMode" class="w-4 h-4 rounded text-cyan-500 focus:ring-0 cursor-pointer">
+        </div>
+
+        <div class="p-3 rounded-lg bg-blue-950/40 border border-blue-900/60 text-[11px] text-slate-300 space-y-1 font-sans">
+          <div class="font-bold text-cyan-300 font-mono">Quick Backend Server Setup:</div>
+          <div>1. <code class="text-cyan-200">npm install express cors @kubernetes/client-node</code></div>
+          <div>2. Run <code class="text-cyan-200">node server.js</code> in your terminal</div>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 pt-2">
+          <button onclick="saveConnectionConfig()" class="w-full px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-sans font-semibold text-xs shadow-md transition">
+            Save & Connect
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* Audio Feedback Effects */
+    let synth = null;
+    function playSound(note = "C5") {
+      try {
+        if (!synth && window.Tone) {
+          synth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.005, decay: 0.1, sustain: 0.05, release: 0.1 }
+          }).toDestination();
+          synth.volume.value = -14;
+        }
+        if (synth) synth.triggerAttackRelease(note, "32n");
+      } catch (e) {}
+    }
+
+    /* Primary Application State */
+    const appState = {
+      backendUrl: localStorage.getItem('k8s_backend_url') || 'http://localhost:5000',
+      isLiveConnected: false,
+      forceDemo: false,
+      activeNamespace: 'default',
+      inspectedPod: null,
+      logTimer: null,
+      
+      // Cluster models
+      nodes: [],
+      pods: [],
+      deployments: []
+    };
+
+    /* Demo / Mock Fallback Dataset */
+    const mockClusterData = {
+      nodes: [
+        {
+          name: 'control-plane-master',
+          status: 'Ready',
+          roles: ['control-plane', 'master'],
+          kubeletVersion: 'v1.30.2',
+          cpu: '4',
+          memory: '8Gi',
+          cpuUsage: '28%',
+          memUsage: '35%'
+        },
+        {
+          name: 'k8s-worker-node-01',
+          status: 'Ready',
+          roles: ['worker'],
+          kubeletVersion: 'v1.30.2',
+          cpu: '4',
+          memory: '8Gi',
+          cpuUsage: '52%',
+          memUsage: '60%'
+        },
+        {
+          name: 'k8s-worker-node-02',
+          status: 'Ready',
+          roles: ['worker'],
+          kubeletVersion: 'v1.30.2',
+          cpu: '4',
+          memory: '8Gi',
+          cpuUsage: '45%',
+          memUsage: '50%'
+        }
+      ],
+      deployments: [
+        { name: 'frontend-web', namespace: 'default', replicas: 3, readyReplicas: 3, image: 'nginx:1.25-alpine' },
+        { name: 'auth-service', namespace: 'default', replicas: 2, readyReplicas: 2, image: 'node:20-alpine' },
+        { name: 'redis-cache', namespace: 'default', replicas: 1, readyReplicas: 1, image: 'redis:7.2-alpine' }
+      ],
+      pods: [
+        { name: 'coredns-7689-x1', namespace: 'kube-system', node: 'control-plane-master', status: 'Running', restarts: 0, podIP: '10.244.0.2', cpu: '8m' },
+        { name: 'kube-proxy-m4', namespace: 'kube-system', node: 'control-plane-master', status: 'Running', restarts: 0, podIP: '10.244.0.3', cpu: '5m' },
+        { name: 'frontend-web-74b8-a1', namespace: 'default', node: 'k8s-worker-node-01', status: 'Running', restarts: 0, podIP: '10.244.1.12', cpu: '14m' },
+        { name: 'frontend-web-74b8-a2', namespace: 'default', node: 'k8s-worker-node-02', status: 'Running', restarts: 0, podIP: '10.244.2.14', cpu: '16m' },
+        { name: 'frontend-web-74b8-a3', namespace: 'default', node: 'k8s-worker-node-01', status: 'Running', restarts: 0, podIP: '10.244.1.15', cpu: '12m' },
+        { name: 'auth-service-59c-b1', namespace: 'default', node: 'k8s-worker-node-01', status: 'Running', restarts: 0, podIP: '10.244.1.20', cpu: '38m' },
+        { name: 'auth-service-59c-b2', namespace: 'default', node: 'k8s-worker-node-02', status: 'Running', restarts: 0, podIP: '10.244.2.22', cpu: '32m' },
+        { name: 'redis-cache-9ff-c1', namespace: 'default', node: 'k8s-worker-node-02', status: 'Running', restarts: 0, podIP: '10.244.2.30', cpu: '20m' }
+      ]
+    };
+
+    async function fetchClusterState() {
+      const icon = document.getElementById('refreshIcon');
+      if (icon) icon.classList.add('animate-spin');
+
+      if (appState.forceDemo) {
+        useMockData();
+        if (icon) icon.classList.remove('animate-spin');
+        return;
+      }
+
+      try {
+        // Attempt connecting to live backend endpoints
+        const ns = appState.activeNamespace === 'all' ? '' : `?namespace=${appState.activeNamespace}`;
+        
+        const [nodesRes, podsRes] = await Promise.all([
+          fetch(`${appState.backendUrl}/api/nodes`, { signal: AbortSignal.timeout(2500) }),
+          fetch(`${appState.backendUrl}/api/pods${ns}`, { signal: AbortSignal.timeout(2500) })
+        ]);
+
+        if (!nodesRes.ok || !podsRes.ok) throw new Error('Backend HTTP error');
+
+        const nodesData = await nodesRes.json();
+        const podsData = await podsRes.json();
+
+        // Connected successfully to real cluster backend
+        appState.isLiveConnected = true;
+        appState.nodes = nodesData.nodes || [];
+        appState.pods = podsData.pods || [];
+
+        // Try fetching deployments if endpoint is implemented
+        try {
+          const depRes = await fetch(`${appState.backendUrl}/api/deployments${ns}`);
+          if (depRes.ok) {
+            const depData = await depRes.json();
+            appState.deployments = depData.deployments || [];
+          } else {
+            synthesizeDeploymentsFromPods();
+          }
+        } catch {
+          synthesizeDeploymentsFromPods();
+        }
+
+        updateConnectionUI(true);
+        appendTerminalLog(`[API] Synchronized with live cluster at ${appState.backendUrl}`, 'text-emerald-400');
+
+      } catch (err) {
+        // Fallback to Demo Mode gracefully
+        appState.isLiveConnected = false;
+        updateConnectionUI(false);
+        useMockData();
+        appendTerminalLog(`[INFO] Live backend unreachable at ${appState.backendUrl}. Switched to Demo Sandbox.`, 'text-amber-400');
+      } finally {
+        if (icon) icon.classList.remove('animate-spin');
+        renderDashboard();
+      }
+    }
+
+    function useMockData() {
+      appState.nodes = JSON.parse(JSON.stringify(mockClusterData.nodes));
+      appState.deployments = JSON.parse(JSON.stringify(mockClusterData.deployments));
+      appState.pods = JSON.parse(JSON.stringify(mockClusterData.pods));
+    }
+
+    function synthesizeDeploymentsFromPods() {
+      // Derive deployment overview from existing pods if deployments endpoint is absent
+      const map = {};
+      appState.pods.forEach(p => {
+        const parts = p.name.split('-');
+        const depName = parts.length > 2 ? parts.slice(0, -2).join('-') : parts[0];
+        if (!map[depName]) {
+          map[depName] = { name: depName, namespace: p.namespace, replicas: 0, readyReplicas: 0 };
+        }
+        map[depName].replicas += 1;
+        if (p.status === 'Running') map[depName].readyReplicas += 1;
+      });
+      appState.deployments = Object.values(map);
+    }
+
+    function updateConnectionUI(isLive) {
+      const badge = document.getElementById('connectionStatusBadge');
+      const text = document.getElementById('connectionStatusText');
+      const banner = document.getElementById('backendNoticeBanner');
+
+      if (isLive) {
+        badge.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Live Cluster Connected</span>`;
+        if (banner) banner.style.display = 'none';
+      } else {
+        badge.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30";
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span><span>Mock / Demo Mode</span>`;
+        if (banner && !appState.forceDemo) banner.style.display = 'flex';
+      }
+
+      document.getElementById('displayBackendUrl').textContent = appState.backendUrl;
+      document.getElementById('sidebarEndpointLabel').textContent = appState.backendUrl;
+    }
+
+    function renderDashboard() {
+      renderDeployments();
+      renderNodesGrid();
+      updateMetricCounters();
+      lucide.createIcons();
+    }
+
+    function updateMetricCounters() {
+      const runningCount = appState.pods.filter(p => p.status === 'Running').length;
+      const failedCount = appState.pods.filter(p => p.status !== 'Running').length;
+
+      document.getElementById('statTotalNodes').textContent = appState.nodes.length;
+      document.getElementById('statRunningPods').textContent = runningCount;
+      document.getElementById('statFailedPods').textContent = failedCount;
+      document.getElementById('statDeployments').textContent = appState.deployments.length;
+      document.getElementById('sidebarNodeCount').textContent = appState.nodes.length;
+      document.getElementById('sidebarDeployCount').textContent = appState.deployments.length;
+    }
+
+    function renderDeployments() {
+      const container = document.getElementById('deploymentsContainer');
+      container.innerHTML = '';
+
+      const filtered = appState.activeNamespace === 'all' 
+        ? appState.deployments 
+        : appState.deployments.filter(d => d.namespace === appState.activeNamespace);
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full py-6 text-center text-slate-500 font-mono text-xs bg-slate-900/40 rounded-xl border border-dashed border-slate-800">
+            No deployments found in namespace "${appState.activeNamespace}". Click "Deploy Workload" to launch one.
+          </div>`;
+        return;
+      }
+
+      filtered.forEach(dep => {
+        const card = document.createElement('div');
+        card.className = "bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-lg hover:border-slate-700 transition flex flex-col justify-between";
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                <span class="font-mono text-xs font-bold text-white">${dep.name}</span>
+              </div>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-950 text-cyan-300 border border-blue-800">${dep.namespace}</span>
+            </div>
+            <div class="text-[11px] font-mono text-slate-400 mb-3 truncate">
+              Image: <span class="text-slate-300">${dep.image || 'app:latest'}</span>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-1">
+              <button onclick="scaleDeployment('${dep.name}', -1)" class="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+              </button>
+              <div class="px-3 font-mono text-xs font-bold text-cyan-300">
+                ${dep.replicas} Replicas
+              </div>
+              <button onclick="scaleDeployment('${dep.name}', 1)" class="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 text-slate-200 transition">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+            <button onclick="restartDeployment('${dep.name}')" title="Restart Deployment" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">
+              <i data-lucide="rotate-ccw" class="w-4 h-4 text-cyan-400"></i>
+            </button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderNodesGrid() {
+      const container = document.getElementById('nodesGrid');
+      container.innerHTML = '';
+
+      appState.nodes.forEach(node => {
+        const isMaster = node.roles && (node.roles.includes('control-plane') || node.roles.includes('master'));
+        const nodePods = appState.pods.filter(p => {
+          const matchNode = p.node === node.name;
+          const matchNs = appState.activeNamespace === 'all' || p.namespace === appState.activeNamespace;
+          return matchNode && matchNs;
+        });
+
+        const card = document.createElement('div');
+        card.className = `bg-[#0B1224] border ${isMaster ? 'border-blue-900/60' : 'border-slate-800'} rounded-xl p-4 shadow-lg flex flex-col justify-between`;
+        
+        let podsHtml = '';
+        if (nodePods.length === 0) {
+          podsHtml = `<div class="col-span-full py-4 text-center text-slate-500 font-mono text-[10px]">No scheduled pods</div>`;
+        } else {
+          podsHtml = nodePods.map(pod => {
+            const isCrashing = pod.status === 'CrashLoopBackOff';
+            const isCreating = pod.status === 'ContainerCreating' || pod.status === 'Pending';
+            
+            let bgClass = "bg-slate-800/80 border-slate-700/60 text-slate-200";
+            let dotClass = "bg-emerald-400";
+            let iconColor = "text-emerald-400";
+
+            if (isCrashing) {
+              bgClass = "bg-rose-950/40 border-rose-600 text-rose-200 animate-pulse";
+              dotClass = "bg-rose-500";
+              iconColor = "text-rose-400";
+            } else if (isCreating) {
+              bgClass = "bg-amber-950/40 border-amber-600 text-amber-200";
+              dotClass = "bg-amber-400 animate-ping";
+              iconColor = "text-amber-400";
+            }
+
+            return `
+              <div onclick="openInspectorByName('${pod.name}')" class="${bgClass} border rounded-lg p-2 cursor-pointer hover:border-cyan-400 transition transform hover:-translate-y-0.5">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="w-1.5 h-1.5 rounded-full ${dotClass}"></span>
+                  <span class="text-[9px] font-mono text-slate-400 truncate max-w-[80px]">${pod.namespace}</span>
+                </div>
+                <div class="font-mono text-[10px] font-bold truncate text-slate-200">${pod.name}</div>
+                <div class="flex items-center justify-between text-[9px] font-mono text-slate-400 mt-1">
+                  <span>${pod.status}</span>
+                  <span>${pod.cpu || '10m'}</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+              <div class="flex items-center gap-2">
+                <div class="w-2.5 h-2.5 rounded-full ${isMaster ? 'bg-cyan-400 shadow-[0_0_8px_#38bdf8]' : 'bg-emerald-400'}"></div>
+                <span class="font-mono text-xs font-bold text-white truncate max-w-[170px]">${node.name}</span>
+              </div>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded ${isMaster ? 'bg-blue-950 text-cyan-300 border border-blue-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}">
+                ${node.status || 'Ready'}
+              </span>
+            </div>
+
+            <div class="space-y-2 mb-4 text-[11px] font-mono text-slate-400">
+              <div class="flex justify-between">
+                <span>CPU / Mem Alloc:</span>
+                <span class="text-slate-300">${node.cpu || '4'} Cores • ${node.memory || '8Gi'}</span>
+              </div>
+              <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div class="${isMaster ? 'bg-cyan-400' : 'bg-emerald-400'} h-1.5 rounded-full" style="width: ${node.cpuUsage || '42%'}"></div>
+              </div>
+            </div>
+
+            <div class="text-[10px] font-mono uppercase text-slate-500 mb-2 font-semibold">Scheduled Pods (${nodePods.length})</div>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              ${podsHtml}
+            </div>
+          </div>
+
+          <div class="mt-4 pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-500 flex justify-between">
+            <span>Kubelet: ${node.kubeletVersion || 'v1.30.2'}</span>
+            <span class="text-slate-400">${isMaster ? 'control-plane' : 'worker'}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    async function scaleDeployment(depName, delta) {
+      playSound(delta > 0 ? "G5" : "D5");
+      const dep = appState.deployments.find(d => d.name === depName);
+      if (!dep) return;
+
+      const newReplicas = Math.max(1, dep.replicas + delta);
+
+      if (appState.isLiveConnected) {
+        try {
+          appendTerminalLog(`[API] POST /api/scale -> Scaling ${depName} to ${newReplicas}...`, 'text-cyan-400');
+          const res = await fetch(`${appState.backendUrl}/api/scale`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: depName,
+              namespace: dep.namespace || 'default',
+              replicas: newReplicas
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            appendTerminalLog(`[API] Success: ${data.message || 'Scaled successfully'}`, 'text-emerald-400');
+            fetchClusterState();
+          } else {
+            appendTerminalLog(`[API Error] ${data.error}`, 'text-rose-400');
+          }
+        } catch (err) {
+          appendTerminalLog(`[Error] Failed to connect to scale endpoint: ${err.message}`, 'text-rose-400');
+        }
+      } else {
+        // Mock Mode local scaling simulation
+        dep.replicas = newReplicas;
+        if (delta > 0) {
+          const randNode = appState.nodes[Math.floor(1 + Math.random() * (appState.nodes.length - 1))] || appState.nodes[0];
+          const newPod = {
+            name: `${depName}-${Math.random().toString(36).substring(2, 6)}`,
+            namespace: dep.namespace || 'default',
+            node: randNode.name,
+            status: 'ContainerCreating',
+            podIP: `10.244.${Math.floor(Math.random()*4)}.${Math.floor(Math.random()*50 + 10)}`,
+            restarts: 0,
+            cpu: '15m'
+          };
+          appState.pods.push(newPod);
+          renderDashboard();
+          appendTerminalLog(`deployment.apps/${depName} scaled up to ${newReplicas} replicas`, 'text-cyan-400');
+
+          setTimeout(() => {
+            newPod.status = 'Running';
+            renderDashboard();
+          }, 1200);
+        } else {
+          const idx = appState.pods.findIndex(p => p.name.startsWith(depName));
+          if (idx !== -1) {
+            appState.pods[idx].status = 'Terminating';
+            renderDashboard();
+            setTimeout(() => {
+              appState.pods.splice(idx, 1);
+              renderDashboard();
+            }, 800);
+          }
+        }
+        renderDashboard();
+      }
+    }
+
+    async function restartDeployment(depName) {
+      playSound("A4");
+      appendTerminalLog(`kubectl rollout restart deployment/${depName}`, 'text-cyan-300');
+
+      if (appState.isLiveConnected) {
+        try {
+          await fetch(`${appState.backendUrl}/api/restart`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: depName, namespace: appState.activeNamespace })
+          });
+          fetchClusterState();
+        } catch (e) {
+          appendTerminalLog(`Backend restart simulated: ${e.message}`, 'text-slate-400');
+        }
+      } else {
+        const relatedPods = appState.pods.filter(p => p.name.startsWith(depName));
+        relatedPods.forEach((p, i) => {
+          setTimeout(() => {
+            p.status = 'Pending';
+            renderDashboard();
+            setTimeout(() => {
+              p.status = 'Running';
+              p.restarts += 1;
+              renderDashboard();
+            }, 1000);
+          }, i * 300);
+        });
+      }
+    }
+
+    document.getElementById('deployWorkloadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('inputDeployName').value.trim();
+      const image = document.getElementById('inputDeployImage').value.trim();
+      const replicas = parseInt(document.getElementById('inputDeployReplicas').value, 10) || 1;
+      const ns = document.getElementById('inputDeployNamespace').value;
+
+      toggleDeployModal(false);
+      playSound("C6");
+
+      if (appState.isLiveConnected) {
+        try {
+          appendTerminalLog(`[API] Creating deployment/${name} with image ${image}...`, 'text-cyan-300');
+          const res = await fetch(`${appState.backendUrl}/api/deploy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, image, replicas, namespace: ns })
+          });
+          const data = await res.json();
+          if (data.success) {
+            appendTerminalLog(`[API] Deployment ${name} successfully submitted`, 'text-emerald-400');
+            fetchClusterState();
+          }
+        } catch (err) {
+          appendTerminalLog(`[Deploy Error] ${err.message}`, 'text-rose-400');
+        }
+      } else {
+        // Mock Mode addition
+        appState.deployments.push({ name, namespace: ns, replicas, readyReplicas: replicas, image });
+        for (let i = 0; i < replicas; i++) {
+          const randNode = appState.nodes[1 + (i % (appState.nodes.length - 1))] || appState.nodes[0];
+          appState.pods.push({
+            name: `${name}-${Math.random().toString(36).substring(2, 6)}`,
+            namespace: ns,
+            node: randNode.name,
+            status: 'Running',
+            podIP: `10.244.1.${Math.floor(Math.random() * 80 + 20)}`,
+            restarts: 0,
+            cpu: '18m'
+          });
+        }
+        appendTerminalLog(`deployment.apps/${name} created in namespace ${ns} (${replicas} replicas)`, 'text-emerald-400');
+        renderDashboard();
+      }
+    });
+
+    function openInspectorByName(podName) {
+      const pod = appState.pods.find(p => p.name === podName);
+      if (!pod) return;
+
+      appState.inspectedPod = pod;
+      playSound("E5");
+
+      document.getElementById('inspectPodName').textContent = pod.name;
+      document.getElementById('inspectPodStatus').innerHTML = `
+        <span class="w-1.5 h-1.5 rounded-full ${pod.status === 'Running' ? 'bg-emerald-400' : 'bg-rose-500'}"></span> ${pod.status}
+      `;
+      document.getElementById('detailNamespace').textContent = pod.namespace;
+      document.getElementById('detailNode').textContent = pod.node || 'Unassigned';
+      document.getElementById('detailPodIp').textContent = pod.podIP || 'Pending';
+      document.getElementById('detailRestarts').textContent = pod.restarts || 0;
+
+      // Populate YAML
+      const manifest = {
+        apiVersion: "v1",
+        kind: "Pod",
+        metadata: {
+          name: pod.name,
+          namespace: pod.namespace,
+          labels: { app: pod.name.split('-')[0] }
+        },
+        spec: {
+          nodeName: pod.node,
+          restartPolicy: "Always",
+          containers: [{
+            name: "main",
+            image: "nginx:alpine",
+            resources: { requests: { cpu: "100m", memory: "128Mi" } }
+          }]
+        },
+        status: {
+          phase: pod.status,
+          podIP: pod.podIP,
+          hostIP: "192.168.49.2"
+        }
+      };
+      document.getElementById('yamlManifestDisplay').textContent = JSON.stringify(manifest, null, 2);
+
+      loadPodLogs(pod.name, pod.namespace);
+
+      document.getElementById('inspectorDrawer').classList.remove('translate-x-full');
+    }
+
+    function closeInspector() {
+      if (appState.logTimer) clearInterval(appState.logTimer);
+      document.getElementById('inspectorDrawer').classList.add('translate-x-full');
+    }
+
+    async function loadPodLogs(podName, namespace) {
+      const container = document.getElementById('podLogContainer');
+      container.innerHTML = `<div class="text-cyan-400 font-mono text-[11px]">Connecting to log stream of ${podName}...</div>`;
+
+      if (appState.isLiveConnected) {
+        try {
+          const res = await fetch(`${appState.backendUrl}/api/pods/${podName}/logs?namespace=${namespace || 'default'}`);
+          const data = await res.json();
+          if (data.success && data.logs) {
+            container.innerHTML = `<pre class="whitespace-pre-wrap">${data.logs}</pre>`;
+            return;
+          }
+        } catch (e) {
+          // fallback to simulated logs
+        }
+      }
+
+      // Simulated streaming logs
+      container.innerHTML = '';
+      const sampleLogs = [
+        `[INFO] Starting container runtime engine for ${podName}`,
+        `[INFO] Configuration loaded from /etc/k8s/config.json`,
+        `[DEBUG] Health check probe HTTP /healthz - 200 OK`,
+        `[INFO] Worker process listening on 0.0.0.0:8080`,
+        `[INFO] Ready for client ingress traffic.`
+      ];
+
+      sampleLogs.forEach(log => {
+        const el = document.createElement('div');
+        el.textContent = `[${new Date().toISOString().substring(11, 19)}] ${log}`;
+        container.appendChild(el);
+      });
+
+      if (appState.logTimer) clearInterval(appState.logTimer);
+      appState.logTimer = setInterval(() => {
+        const time = new Date().toISOString().substring(11, 19);
+        const dynamicEntries = [
+          `[${time}] GET /api/v1/metrics status=200 latency=1.2ms`,
+          `[${time}] Periodic background health check verified OK`,
+          `[${time}] Keep-alive heartbeat dispatched to control-plane`
+        ];
+        const logLine = document.createElement('div');
+        logLine.textContent = dynamicEntries[Math.floor(Math.random() * dynamicEntries.length)];
+        container.appendChild(logLine);
+        container.scrollTop = container.scrollHeight;
+      }, 3500);
+    }
+
+    function refreshPodLogs() {
+      if (appState.inspectedPod) {
+        loadPodLogs(appState.inspectedPod.name, appState.inspectedPod.namespace);
+      }
+    }
+
+    function clearPodLogs() {
+      document.getElementById('podLogContainer').innerHTML = '';
+    }
+
+    function copyYamlManifest() {
+      const code = document.getElementById('yamlManifestDisplay').textContent;
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      appendTerminalLog('Manifest copied to clipboard', 'text-emerald-400');
+    }
+
+    async function deleteInspectedPod() {
+      if (!appState.inspectedPod) return;
+      const victimName = appState.inspectedPod.name;
+      const victimNs = appState.inspectedPod.namespace;
+      closeInspector();
+
+      appendTerminalLog(`kubectl delete pod ${victimName} -n ${victimNs}`, 'text-rose-400');
+      playSound("A3");
+
+      if (appState.isLiveConnected) {
+        try {
+          await fetch(`${appState.backendUrl}/api/pods/${victimName}?namespace=${victimNs}`, { method: 'DELETE' });
+          fetchClusterState();
+        } catch (err) {
+          appendTerminalLog(`Failed to delete pod on backend: ${err.message}`, 'text-rose-400');
+        }
+      } else {
+        appState.pods = appState.pods.filter(p => p.name !== victimName);
+        renderDashboard();
+        setTimeout(() => {
+          appendTerminalLog(`ReplicaSet controller spawned replacement pod for ${victimName}`, 'text-emerald-400');
+          const depRoot = victimName.split('-')[0];
+          appState.pods.push({
+            name: `${depRoot}-${Math.random().toString(36).substring(2, 6)}`,
+            namespace: victimNs,
+            node: 'k8s-worker-node-01',
+            status: 'Running',
+            podIP: '10.244.1.99',
+            restarts: 0,
+            cpu: '12m'
+          });
+          renderDashboard();
+        }, 1500);
+      }
+    }
+
+    function switchInspectorTab(tab) {
+      document.getElementById('tabContentLogs').classList.add('hidden');
+      document.getElementById('tabContentYaml').classList.add('hidden');
+      document.getElementById('tabContentDetails').classList.add('hidden');
+
+      document.getElementById('tabBtnLogs').className = 'flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition';
+      document.getElementById('tabBtnYaml').className = 'flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition';
+      document.getElementById('tabBtnDetails').className = 'flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition';
+
+      if (tab === 'logs') {
+        document.getElementById('tabContentLogs').classList.remove('hidden');
+        document.getElementById('tabBtnLogs').className = 'flex-1 py-2.5 text-center border-b-2 border-cyan-400 text-cyan-400 font-bold';
+      } else if (tab === 'yaml') {
+        document.getElementById('tabContentYaml').classList.remove('hidden');
+        document.getElementById('tabBtnYaml').className = 'flex-1 py-2.5 text-center border-b-2 border-cyan-400 text-cyan-400 font-bold';
+      } else if (tab === 'details') {
+        document.getElementById('tabContentDetails').classList.remove('hidden');
+        document.getElementById('tabBtnDetails').className = 'flex-1 py-2.5 text-center border-b-2 border-cyan-400 text-cyan-400 font-bold';
+      }
+    }
+
+    const terminalScreen = document.getElementById('terminalScreen');
+    const terminalInput = document.getElementById('terminalInput');
+    const terminalForm = document.getElementById('terminalForm');
+
+    function appendTerminalLog(text, colorClass = 'text-slate-300') {
+      const line = document.createElement('div');
+      line.className = `${colorClass} whitespace-pre-wrap leading-relaxed font-mono`;
+      line.textContent = text;
+      terminalScreen.appendChild(line);
+      terminalScreen.scrollTop = terminalScreen.scrollHeight;
+    }
+
+    function clearTerminalScreen() {
+      terminalScreen.innerHTML = '';
+    }
+
+    function toggleTerminal(explicit) {
+      const sec = document.getElementById('terminalSection');
+      if (explicit !== undefined) {
+        sec.style.display = explicit ? 'block' : 'none';
+      } else {
+        sec.style.display = sec.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
+    terminalForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = terminalInput.value.trim();
+      if (!val) return;
+
+      appendTerminalLog(`kubectl> ${val}`, 'text-cyan-400 font-bold');
+      terminalInput.value = '';
+      playSound('F4');
+
+      const parts = val.split(/\s+/);
+      const action = parts[0] === 'kubectl' ? parts[1] : parts[0];
+      const resource = parts[0] === 'kubectl' ? parts[2] : parts[1];
+
+      if (action === 'clear') {
+        clearTerminalScreen();
+        return;
+      }
+
+      if (action === 'help') {
+        appendTerminalLog(
+`Kubectl Commands Reference:
+  • get nodes             : List cluster node status
+  • get pods [-A]         : List running pods
+  • scale deployment <name> --replicas=<num>
+  • delete pod <name>     : Trigger pod eviction
+  • clear                 : Clear terminal window`, 'text-yellow-300');
+        return;
+      }
+
+      if (action === 'get') {
+        if (resource === 'nodes' || resource === 'no') {
+          let out = `NAME                   STATUS   ROLES           AGE   VERSION\n`;
+          appState.nodes.forEach(n => {
+            const role = (n.roles && n.roles[0]) || 'worker';
+            out += `${n.name.padEnd(23)} Ready    ${role.padEnd(15)} 18d   ${n.kubeletVersion || 'v1.30.2'}\n`;
+          });
+          appendTerminalLog(out, 'text-slate-200');
+          return;
+        }
+
+        if (resource === 'pods' || resource === 'po') {
+          let out = `NAME                             READY   STATUS    RESTARTS   AGE\n`;
+          appState.pods.forEach(p => {
+            out += `${p.name.padEnd(32)} 1/1     ${p.status.padEnd(9)} ${String(p.restarts).padEnd(10)} 4h\n`;
+          });
+          appendTerminalLog(out, 'text-slate-200');
+          return;
+        }
+      }
+
+      if (action === 'scale') {
+        const depTarget = resource === 'deployment' ? parts[parts[0] === 'kubectl' ? 3 : 2] : resource;
+        scaleDeployment(depTarget || 'frontend-web', 1);
+        return;
+      }
+
+      appendTerminalLog(`Command acknowledged by cluster manager: "${val}"`, 'text-slate-400');
+    });
+
+    function toggleDeployModal(show) {
+      document.getElementById('deployModal').classList.toggle('hidden', !show);
+    }
+
+    function toggleConfigModal(show) {
+      document.getElementById('configModal').classList.toggle('hidden', !show);
+      document.getElementById('configBackendUrl').value = appState.backendUrl;
+      document.getElementById('toggleDemoMode').checked = appState.forceDemo;
+    }
+
+    function saveConnectionConfig() {
+      appState.backendUrl = document.getElementById('configBackendUrl').value.trim() || 'http://localhost:5000';
+      appState.forceDemo = document.getElementById('toggleDemoMode').checked;
+      localStorage.setItem('k8s_backend_url', appState.backendUrl);
+      toggleConfigModal(false);
+      fetchClusterState();
+    }
+
+    function testBackendConnection() {
+      fetchClusterState();
+    }
+
+    function scrollToDeployments() {
+      document.getElementById('deploymentsSection').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function injectFailureScenario() {
+      playSound("C3");
+      const running = appState.pods.filter(p => p.status === 'Running');
+      if (running.length > 0) {
+        const victim = running[Math.floor(Math.random() * running.length)];
+        victim.status = 'CrashLoopBackOff';
+        victim.restarts = (victim.restarts || 0) + 1;
+        renderDashboard();
+        appendTerminalLog(`[CRASH] Pod ${victim.name} entered CrashLoopBackOff: exit code 137 (OOMKilled)`, 'text-rose-400');
+      }
+    }
+
+    function healAllPods() {
+      playSound("G5");
+      appState.pods.forEach(p => {
+        p.status = 'Running';
+      });
+      renderDashboard();
+      appendTerminalLog('[HEAL] Reconciled all pod conditions -> Healthy', 'text-emerald-400');
+    }
+
+    // Namespace Selector Event
+    document.getElementById('namespaceSelect').addEventListener('change', (e) => {
+      appState.activeNamespace = e.target.value;
+      fetchClusterState();
+    });
+
+    // Initial Startup
+    window.addEventListener('load', () => {
+      fetchClusterState();
+    });
+  </script>
+</body>
+</html>
