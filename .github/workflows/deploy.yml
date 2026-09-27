@@ -25,7 +25,7 @@ jobs:
       - name: Authenticate with AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::230235764463:role/GitHubActions-EKSTest
+          role-to-assume: arn:aws:iam::230235764463:role/descriveclusterofPORTAL
           aws-region: us-east1
           audience: sts.amazonaws.com
 
