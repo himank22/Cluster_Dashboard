@@ -1,0 +1,68 @@
+name: Build & Deploy to AWS EKS via OIDC
+
+on:
+  push:
+    branches: [ "main" ]
+
+# OIDC Token request karne ke liye zaroori permissions
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  EKS_CLUSTER_NAME: k8s-practice-cluster
+  ECR_REPOSITORY: eks-portal
+
+jobs:
+  deploy:
+    name: Build & Deploy via OIDC
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # OIDC ke zariye Bina kisi Access Key ke Authenticate karein
+    - name: Configure AWS Credentials with OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::230235764463:role/GitHubActions-EKSTest
+        aws-region: us-east-1
+        audience: sts.amazonaws.com
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, Tag, and Push Image to ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Update Kubeconfig for EKS
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+
+    - name: Deploy to EKS Cluster
+      env:
+        IMAGE_URI: ${{ steps.build-image.outputs.image }}
+      run: |
+        # Deployment manifest apply karein
+        kubectl apply -f eks-deploy.yaml
+
+        # Live deployment ko nayi ECR image par roll out karein
+        kubectl set image deployment/eks-portal-deployment eks-portal-container=$IMAGE_URI -n portal-system
+
+        # Check rollout status
+        kubectl rollout status deployment/eks-portal-deployment -n portal-system
